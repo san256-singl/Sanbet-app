@@ -122,3 +122,144 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+class HomeScreen extends StatefulWidget {
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  double balance = 0;
+  List matches = [];
+  Map<String, Map<String, dynamic>> slip = {};
+  String phone = '';
+
+  @override
+  void initState() {
+    super.initState();
+    loadData();
+  }
+
+  Future<void> loadData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    phone = prefs.getString('phone') ?? '';
+    try {
+      final res = await http.get(Uri.parse('$API_BASE/api/matches'), headers: {'Authorization': 'Bearer $token'});
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        setState(() {
+          matches = data['matches'] ?? [];
+          balance = (data['balance'] ?? 0).toDouble();
+        });
+      }
+    } catch (e) {}
+  }
+
+  double get totalOdds {
+    double o = 1;
+    slip.forEach((_, v) { o *= (v['odd'] as num).toDouble(); });
+    return o;
+  }
+
+  void addToSlip(dynamic m, String pick, double odd) {
+    setState(() {
+      slip['${m['id']}'] = {'match': m, 'pick': pick, 'odd': odd};
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Color(0xFF0B3D2E),
+        title: Text('SANBET', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        actions: [
+          Center(child: Padding(padding: EdgeInsets.only(right: 12), child: Text('UGX ${balance.toStringAsFixed(0)}', style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)))),
+          IconButton(icon: Icon(Icons.refresh, color: Colors.white), onPressed: loadData),
+        ],
+      ),
+      body: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            color: Colors.amber,
+            padding: EdgeInsets.all(12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Balance: UGX ${balance.toStringAsFixed(0)}', style: TextStyle(fontWeight: FontWeight.bold)),
+                Row(
+                  children: [
+                    ElevatedButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DepositScreen(onDone: loadData))), child: Text('DEPOSIT')),
+                    SizedBox(width: 8),
+                    ElevatedButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WithdrawScreen(onDone: loadData))), child: Text('WITHDRAW')),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: matches.isEmpty
+                ? Center(child: Text('No matches yet. Pull to refresh.'))
+                : ListView.builder(
+                    itemCount: matches.length,
+                    itemBuilder: (_, i) {
+                      final m = matches[i];
+                      return Card(
+                        margin: EdgeInsets.all(8),
+                        child: Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('${m['league'] ?? ''} • ${m['time'] ?? ''}', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                              SizedBox(height: 6),
+                              Text('${m['home']} vs ${m['away']}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  _oddBtn(m, '1', (m['odd1'] ?? 1.0).toDouble(), m['home']),
+                                  SizedBox(width: 6),
+                                  _oddBtn(m, 'X', (m['oddX'] ?? 1.0).toDouble(), 'Draw'),
+                                  SizedBox(width: 6),
+                                  _oddBtn(m, '2', (m['odd2'] ?? 1.0).toDouble(), m['away']),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          if (slip.isNotEmpty)
+            Container(
+              color: Color(0xFF0B3D2E),
+              padding: EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Expanded(child: Text('${slip.length} selections • Odds ${totalOdds.toStringAsFixed(2)}', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BetSlipScreen(slip: slip, totalOdds: totalOdds, onDone: () { setState(() => slip.clear()); loadData(); }))),
+                    child: Text('BET SLIP', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _oddBtn(dynamic m, String label, double odd, String pickName) {
+    bool selected = slip['${m['id']}']?['pick'] == pickName;
+    return Expanded(
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(backgroundColor: selected ? Colors.amber : Colors.grey[200]),
+        onPressed: () => addToSlip(m, pickName, odd),
+        child: Text('$label\n$odd', textAlign: TextAlign.center, style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+}
